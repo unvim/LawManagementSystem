@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using IdentityServer4;
 
 namespace ittechub.Saas.IDP
 {
@@ -63,8 +64,22 @@ namespace ittechub.Saas.IDP
 				ClientSecrets = new List<Secret> {
 					new Secret("superSecretPassword".Sha256())},
 				AllowedScopes = new List<string> {"customAPI.read"}
-			}
-		};
+			},new Client {
+    ClientId = "openIdConnectClient",
+    ClientName = "Example Implicit Client Application",
+    AllowedGrantTypes = GrantTypes.Implicit,
+    AllowedScopes = new List<string>
+    {
+        IdentityServerConstants.StandardScopes.OpenId,
+        IdentityServerConstants.StandardScopes.Profile,
+        IdentityServerConstants.StandardScopes.Email,
+        "role",
+        "customAPI.write"
+    },
+    RedirectUris = new List<string> {"https://localhost:44337/signin-oidc"},
+    PostLogoutRedirectUris = new List<string> { "https://localhost:44337/" }
+}
+        };
 		}
 	}
 
