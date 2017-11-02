@@ -1,138 +1,114 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Linq;
+using System.Reflection;
 using System.Security.Claims;
-using System.Threading.Tasks;
-using IdentityModel;
-using IdentityServer4.Models;
-using IdentityServer4.Test;
+using IdentityServer4.EntityFramework.DbContexts;
+using IdentityServer4.EntityFramework.Mappers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using IdentityServer4;
 
 namespace ittechub.Saas.IDP
 {
-	public class Startup
-	{
-		// This method gets called by the runtime. Use this method to add services to the container.
-		// For more information on how to configure your application, visit https://go.microsoft.com/fwlink/?LinkID=398940
-		public void ConfigureServices(IServiceCollection services)
-		{
-			services.AddIdentityServer()
-		.AddInMemoryClients(Clients.Get())
-		.AddInMemoryIdentityResources(Resources.GetIdentityResources())
-		.AddInMemoryApiResources(Resources.GetApiResources())
-		.AddTestUsers(Users.Get())
-		.AddDeveloperSigningCredential();
-
-			services.AddMvc();
-			
-		}
-
-	
-
-		// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-		public void Configure(IApplicationBuilder app, IHostingEnvironment env)
-		{
-			if (env.IsDevelopment())
-			{
-				app.UseDeveloperExceptionPage();
-			}
-			app.UseIdentityServer();
-
-			app.UseStaticFiles();
-			app.UseMvcWithDefaultRoute();
-
-			//app.Run(async (context) =>
-			//{
-			//	await context.Response.WriteAsync("Hello World!");
-			//});
-		}
-	}
-
-	internal class Clients
-	{
-		public static IEnumerable<Client> Get()
-		{
-			return new List<Client> {
-			new Client {
-				ClientId = "oauthClient",
-				ClientName = "Example Client Credentials Client Application",
-				AllowedGrantTypes = GrantTypes.ClientCredentials,
-				ClientSecrets = new List<Secret> {
-					new Secret("superSecretPassword".Sha256())},
-				AllowedScopes = new List<string> {"customAPI.read"}
-			},new Client {
-    ClientId = "openIdConnectClient",
-    ClientName = "Example Implicit Client Application",
-    AllowedGrantTypes = GrantTypes.Implicit,
-    AllowedScopes = new List<string>
+    public class Startup
     {
-        IdentityServerConstants.StandardScopes.OpenId,
-        IdentityServerConstants.StandardScopes.Profile,
-        IdentityServerConstants.StandardScopes.Email,
-        "role",
-        "customAPI.write"
-    },
-    RedirectUris = new List<string> {"https://localhost:44337/signin-oidc"},
-    PostLogoutRedirectUris = new List<string> { "https://localhost:44337/" }
-}
-        };
-		}
-	}
+        public void ConfigureServices(IServiceCollection services)
+        {
+            const string connectionString = @"Data Source=(LocalDb)\MSSQLLocalDB;database=Test.IdentityServer4.EntityFramework2;trusted_connection=yes;";
+            var migrationsAssembly = typeof(Startup).GetTypeInfo().Assembly.GetName().Name;
 
-	internal class Resources
-	{
-		public static IEnumerable<IdentityResource> GetIdentityResources()
-		{
-			return new List<IdentityResource> {
-			new IdentityResources.OpenId(),
-			new IdentityResources.Profile(),
-			new IdentityResources.Email(),
-			new IdentityResource {
-				Name = "role",
-				UserClaims = new List<string> {"role"}
-			}
-		};
-		}
+            services.AddMvc();
 
-		public static IEnumerable<ApiResource> GetApiResources()
-		{
-			return new List<ApiResource> {
-			new ApiResource {
-				Name = "customAPI",
-				DisplayName = "Custom API",
-				Description = "Custom API Access",
-				UserClaims = new List<string> {"role"},
-				ApiSecrets = new List<Secret> {new Secret("scopeSecret".Sha256())},
-				Scopes = new List<Scope> {
-					new Scope("customAPI.read"),
-					new Scope("customAPI.write")
-				}
-			}
-		};
-		}
+            services.AddDbContext<ApplicationDbContext>(builder =>
+                builder.UseSqlServer(connectionString, sqlOptions => sqlOptions.MigrationsAssembly(migrationsAssembly)));
 
-		
-	}
+            services.AddIdentity<IdentityUser, IdentityRole>()
+                .AddEntityFrameworkStores<ApplicationDbContext>();
 
-	internal class Users
-	{
-		public static List<TestUser> Get()
-		{
-			return new List<TestUser> {
-			new TestUser {
-				SubjectId = "5BE86359-073C-434B-AD2D-A3932222DABE",
-				Username = "scott",
-				Password = "password",
-				Claims = new List<Claim> {
-					new Claim(JwtClaimTypes.Email, "scott@scottbrady91.com"),
-					new Claim(JwtClaimTypes.Role, "admin")
-				}
-			}
-		};
-		}
-	}
+            services.AddIdentityServer()
+                .AddOperationalStore(options =>
+                    options.ConfigureDbContext = builder =>
+                        builder.UseSqlServer(connectionString, sqlOptions => sqlOptions.MigrationsAssembly(migrationsAssembly)))
+                .AddConfigurationStore(options =>
+                    options.ConfigureDbContext = builder =>
+                        builder.UseSqlServer(connectionString, sqlOptions => sqlOptions.MigrationsAssembly(migrationsAssembly)))
+                .AddAspNetIdentity<IdentityUser>()
+                //.AddInMemoryClients(Clients.Get())
+                //.AddInMemoryIdentityResources(Resources.GetIdentityResources())
+                //.AddInMemoryApiResources(Resources.GetApiResources())
+                //.AddTestUsers(Users.Get())
+                .AddDeveloperSigningCredential();
+
+        }
+        
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+
+            InitializeDbTestData(app);
+
+            app.UseIdentityServer();
+
+            app.UseStaticFiles();
+            app.UseMvcWithDefaultRoute();
+        }
+
+        private static void InitializeDbTestData(IApplicationBuilder app)
+        {
+            using (var scope = app.ApplicationServices.GetService<IServiceScopeFactory>().CreateScope())
+            {
+                scope.ServiceProvider.GetRequiredService<PersistedGrantDbContext>().Database.Migrate();
+                scope.ServiceProvider.GetRequiredService<ConfigurationDbContext>().Database.Migrate();
+                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.Migrate();
+
+                var context = scope.ServiceProvider.GetRequiredService<ConfigurationDbContext>();
+
+                if (!context.Clients.Any())
+                {
+                    foreach (var client in Clients.Get())
+                    {
+                        context.Clients.Add(client.ToEntity());
+                    }
+                    context.SaveChanges();
+                }
+
+                if (!context.IdentityResources.Any())
+                {
+                    foreach (var resource in Resources.GetIdentityResources())
+                    {
+                        context.IdentityResources.Add(resource.ToEntity());
+                    }
+                    context.SaveChanges();
+                }
+
+                if (!context.ApiResources.Any())
+                {
+                    foreach (var resource in Resources.GetApiResources())
+                    {
+                        context.ApiResources.Add(resource.ToEntity());
+                    }
+                    context.SaveChanges();
+                }
+
+                var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+                if (!userManager.Users.Any())
+                {
+                    foreach (var testUser in Users.Get())
+                    {
+                        var identityUser = new IdentityUser(testUser.Username)
+                        {
+                            Id = testUser.SubjectId
+                        };
+
+                        userManager.CreateAsync(identityUser, "Password123!").Wait();
+                        userManager.AddClaimsAsync(identityUser, testUser.Claims.ToList()).Wait();
+                    }
+                }
+            }
+        }
+    }
 }
